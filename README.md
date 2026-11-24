@@ -50,6 +50,12 @@ To use this software/firmware on a device, you'll need:
 
 5. Customize this project! For firmware details, see [Particle firmware](https://docs.particle.io/reference/device-os/api/introduction/getting-started/). For information on the project's directory structure, visit [this link](https://docs.particle.io/firmware/best-practices/firmware-template/#project-overview).
 
+## Plant Moisture Web Page
+
+Open `src/alert.html` in a browser and connect using the Particle device ID and an access token with permission to access that device. The page reads the `moisture`, `rawReading`, `moistureCategory`, and `targetMoisture` cloud variables, listens for private `moisture` events, and updates the target through the `moistTarget` cloud function.
+
+The target choices set a soil-moisture threshold (60%, 85%, or 100%); they do not set a pump duration or water volume. The current firmware reads the sensor but does not control a pump. Use a scoped access token and do not publish the page with a personal access token.
+
 ## Particle Firmware At A Glance
 
 ### Logging

@@ -1,108 +1,272 @@
-<html>
-<script src="https://code.jquery.com/jquery-3.6.0.min.js" type="text/javascript" charset="utf-8"></script>
-  <body>
-    AMAZING, INNOVATIVE, <b>THERMOSTAT!!!!!</b>
-    <br> Current Temperature:<span id="current_temp"></span>&deg; F
-    <br> Desired Temperature:<span id="desired_temp"></span>&deg; F
-    <script type="text/javascript">
-    // JavaScript comments work just like C
-    document.getElementById("current_temp").innerHTML = "--Refresh data to see--";
-    document.getElementById("desired_temp").innerHTML = "--Refresh data to see--";
-    </script>
-    <button id="connectbutton" onclick="start()">Refresh Data</button>
-        <form id="tempForm">
-      <input type="text" id="desTempArgs" value="(50-90)"><br>
-      <input type="submit" value="Set Temperature">
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plant Moisture</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 38rem; padding: 0 1rem; }
+    label { display: block; margin: 1rem 0 0.35rem; }
+    input, select, button { font: inherit; padding: 0.45rem; }
+    button { margin-top: 1rem; }
+    .reading { font-size: 1.2rem; }
+    #status { min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>Plant Moisture</h1>
 
-    </form>
-   
-    <script type="text/javascript">
-      document.getElementById("tempForm").addEventListener("submit", function(event) {
-        event.preventDefault();
-        var desTempVal = document.getElementById("desTempArgs").value;
-        // alert("desTempVal=" + desTempVal);
-        var functionName  = "cF_setTargetTemp";
+  <form id="connectForm">
+    <label for="deviceId">Particle device ID</label>
+    <input id="deviceId" autocomplete="off" required>
+    <label for="accessToken">Particle access token</label>
+    <input id="accessToken" type="password" autocomplete="off" required>
+    <button type="submit">Connect</button>
+  </form>
+  <p>The page does not save credentials. Use a scoped access token and do not publish this page with a personal access token.</p>
 
+  <section aria-live="polite">
+    <h2>Current soil reading</h2>
+    <p class="reading"><span id="moisture">--</span>% — <span id="level">Waiting for device</span></p>
+    <p>Raw sensor reading: <span id="rawReading">--</span></p>
+    <p>Target soil moisture: <span id="targetDisplay">--</span></p>
+  </section>
 
-        // For debugging: Log the data to the console
-        //console.log({
-        //  args: desTempVal,
-        //  url: baseURL + deviceID + '/' + setTargetTempFuncName,
-        //  headers: { "Authorization": "Bearer " + accessToken }
-        //});        
-
-
-        $.ajax({
-          url: baseURL + deviceID + '/' + functionName ,
-          method: "POST",
-          headers: {'Authorization': 'Bearer ' + accessToken},
-          data: { arg: desTempVal },
-          success: function(resp) {
-            alert("Message Sent! \n" + 
-               "(this doesn't mean it worked! \n" +
-               "i.e., may not have a valid ID/Token/FunctionName/etc.)");
-          }
-        });
-        });
-     </script>
-
-
-
+  <form id="targetForm">
+    <label for="targetMoisture">Desired moisture after watering</label>
+    <select id="targetMoisture" required disabled>
+      <option value="60">Moist (60%)</option>
+      <option value="85">Saturated (85%)</option>
+      <option value="100">Super saturated (100%)</option>
+    </select>
+    <button type="submit" id="saveTarget" disabled>Save target</button>
+  </form>
+  <p>The target sets the soil-moisture threshold. This firmware currently reads the sensor but does not control a water pump.</p>
+  <p id="status" role="status">Enter your device details to connect.</p>
 
   <script>
-    // global variables
-    var deviceID = "0a10aced202194944a0c1cc0";
-    var accessToken = "301bbb76e0aaf6c0590545b22cf02d916564f6e7";
-    var baseURL = "https://api.particle.io/v1/devices/"
-  </script>
+    const apiBase = "https://api.particle.io/v1/";
+    const connectForm = document.getElementById("connectForm");
+    const targetForm = document.getElementById("targetForm");
+    const targetSelect = document.getElementById("targetMoisture");
+    const saveTargetButton = document.getElementById("saveTarget");
+    const statusText = document.getElementById("status");
+    let deviceId = "";
+    let accessToken = "";
+    let eventController = null;
 
- <form id="thermostat">
-    <input type="radio" name="mode" value="Heat">Set thermostat mode to HEAT.<br>
-    <input type="radio" name="mode" value="Off">Set thermostat mode to OFF.<br>
-    <input type="radio" name="mode" value="Cool">Set thermostat mode to COOL.<br>
-    <input type="radio" name="mode" value="RedAlert">Set alert mode to RED ALERT.<br>
-    <input type="submit" value="Do it!">
-  </form>
+    function setStatus(message) {
+      statusText.textContent = message;
+    }
 
-<script>
-    $("#thermostat").submit(function(event) {
-        event.preventDefault();
-        var functionName = "cF_setMode"; // local variable functionName
-        $.ajax({
-            url: 'https://api.particle.io/v1/devices/'+ deviceID +'/' + functionName,
+    async function readVariable(name) {
+      const response = await fetch(
+        `${apiBase}devices/${encodeURIComponent(deviceId)}/${name}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!response.ok) {
+        throw new Error(`Could not read ${name} (${response.status}).`);
+      }
+      const result = await response.json();
+      return result.result;
+    }
+
+    function showTarget(percent, updateSelection = true) {
+      document.getElementById("targetDisplay").textContent = `${percent}%`;
+      const matchingOption = Array.from(targetSelect.options)
+        .find(option => Number(option.value) === Number(percent));
+      if (!updateSelection) {
+        if (!matchingOption) {
+          targetSelect.add(new Option(`Custom (${percent}%)`, String(percent)));
+        }
+      } else if (matchingOption) {
+        targetSelect.value = matchingOption.value;
+      } else {
+        const customOption = new Option(`Custom (${percent}%)`, String(percent));
+        targetSelect.add(customOption);
+        targetSelect.value = customOption.value;
+      }
+    }
+
+    function showReading(reading, updateTargetSelection = true) {
+      if (reading.percent !== undefined) {
+        document.getElementById("moisture").textContent = reading.percent;
+      }
+      if (reading.raw !== undefined) {
+        document.getElementById("rawReading").textContent = reading.raw;
+      }
+      if (reading.level) {
+        document.getElementById("level").textContent = reading.level;
+      }
+      if (reading.target !== undefined) {
+        showTarget(reading.target, updateTargetSelection);
+      }
+    }
+
+    function categoryName(category) {
+      return ["DRY", "MOIST", "SATURATED", "SUPER SATURATED"][Number(category)]
+        || "Unknown";
+    }
+
+    function handleMoistureEvent(event) {
+      try {
+        const eventEnvelope = JSON.parse(event.data);
+        const reading = typeof eventEnvelope.data === "string"
+          ? JSON.parse(eventEnvelope.data)
+          : eventEnvelope.data || eventEnvelope;
+        showReading(reading, false);
+        setStatus("Connected — live moisture events are updating.");
+      } catch (error) {
+        setStatus(`Received an unreadable moisture event: ${error.message}`);
+      }
+    }
+
+    function processEventFrame(frame) {
+      let eventName = "message";
+      const data = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          data.push(line.slice(5).replace(/^ /, ""));
+        }
+      }
+      if (data.length && (eventName === "moisture" || eventName === "message")) {
+        handleMoistureEvent({ data: data.join("\n") });
+      }
+    }
+
+    async function streamMoistureEvents(controller) {
+      while (!controller.signal.aborted) {
+        try {
+          const response = await fetch(
+            `${apiBase}devices/${encodeURIComponent(deviceId)}/events/moisture`,
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "text/event-stream"
+              },
+              signal: controller.signal
+            }
+          );
+          if (!response.ok) {
+            throw new Error(`Could not subscribe to moisture events (${response.status}).`);
+          }
+          if (!response.body) {
+            throw new Error("The browser does not support streaming cloud events.");
+          }
+
+          setStatus("Connected — live moisture events are updating.");
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!controller.signal.aborted) {
+            const { value, done } = await reader.read();
+            if (done) {
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            buffer = buffer.replace(/\r\n/g, "\n");
+            let frameEnd = buffer.indexOf("\n\n");
+            while (frameEnd !== -1) {
+              processEventFrame(buffer.slice(0, frameEnd));
+              buffer = buffer.slice(frameEnd + 2);
+              frameEnd = buffer.indexOf("\n\n");
+            }
+          }
+          if (controller.signal.aborted) {
+            return;
+          }
+          throw new Error("The moisture event stream closed.");
+        } catch (error) {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setStatus(`${error.message} Retrying in 5 seconds…`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+
+    async function connect() {
+      if (eventController) {
+        eventController.abort();
+        eventController = null;
+      }
+      deviceId = document.getElementById("deviceId").value.trim();
+      accessToken = document.getElementById("accessToken").value.trim();
+      if (!deviceId || !accessToken) {
+        throw new Error("Enter both a device ID and an access token.");
+      }
+
+      setStatus("Connecting and loading the latest cloud variables…");
+      const [percent, raw, target, category] = await Promise.all([
+        readVariable("moisture"),
+        readVariable("rawReading"),
+        readVariable("targetMoisture"),
+        readVariable("moistureCategory")
+      ]);
+      showReading({
+        percent,
+        raw,
+        target,
+        level: categoryName(category)
+      });
+      targetSelect.disabled = false;
+      saveTargetButton.disabled = false;
+
+      eventController = new AbortController();
+      void streamMoistureEvents(eventController);
+    }
+
+    connectForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      targetSelect.disabled = true;
+      saveTargetButton.disabled = true;
+      try {
+        await connect();
+      } catch (error) {
+        setStatus(error.message);
+      }
+    });
+
+    targetForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!deviceId || !accessToken) {
+        setStatus("Connect to your Particle device before saving a target.");
+        return;
+      }
+
+      saveTargetButton.disabled = true;
+      setStatus("Saving moisture target…");
+      try {
+        const response = await fetch(
+          `${apiBase}devices/${encodeURIComponent(deviceId)}/moistTarget`,
+          {
             method: "POST",
-            headers: { "Authorization": "Bearer " + accessToken },
-            data: { arg: $("input[name='mode']:checked").val() },
-            success: () => alert("Message Sent! \n" + 
-               "(this doesn't mean it worked! \n" +
-               "i.e., may not have a valid ID/Token/FunctionName/etc.)")
-
-        });
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({ arg: targetSelect.value })
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Could not save target (${response.status}).`);
+        }
+        const result = await response.json();
+        const returnValue = Number(result.return_value);
+        if (!Number.isInteger(returnValue) || returnValue < 0) {
+          throw new Error("The device rejected the moisture target.");
+        }
+        showTarget(targetSelect.value);
+        setStatus("Moisture target saved.");
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        saveTargetButton.disabled = false;
+      }
     });
-    
-</script>
-<script type="text/javascript">
-  function start(objButton) {
-    var varName = "cV_temp"; // your cloud variable name goes here
-    $.ajax({
-      url: baseURL + deviceID + '/' + varName,
-      headers: {'Authorization': 'Bearer ' + accessToken},
-      method: 'GET',
-      success: function(resp) {
-        document.getElementById("current_temp").innerText = resp.result;},
-    });
-
-
-    var varName = "cV_targetTemp";  // this is another cloud variable name
-    $.ajax({
-      url: baseURL + deviceID + '/' + varName,
-      headers: {'Authorization': 'Bearer ' + accessToken},
-      method: 'GET',
-      success: function(resp) {
-        document.getElementById("desired_temp").innerText = resp.result;},
-    });
-  }
-</script>
-
-  </body>
+  </script>
+</body>
 </html>

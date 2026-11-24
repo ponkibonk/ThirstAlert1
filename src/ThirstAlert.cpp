@@ -32,12 +32,22 @@ unsigned long lastCloudPublishTime = 0;
 // These values are registered as Particle Cloud variables for remote lookup.
 int currentMoisturePercent = 0;
 int currentRawReading = 0;
+int currentMoistureCategory = 0;
 
-// Turn a raw analog reading into a human-readable moisture category.
+int moistureCategory(int reading) {
+  if (reading <= dryReading) return 0;
+  if (reading <= wetReading) return 1;
+  if (reading < superwetReading) return 2;
+  return 3;
+}
+
 const char* moistureLevel(int reading) {
-  if (reading <= dryReading) return "DRY";
-  if (reading <= wetReading) return "WET";
-  return "SUPER WET";
+  switch (moistureCategory(reading)) {
+    case 0: return "DRY";
+    case 1: return "MOIST";
+    case 2: return "SATURATED";
+    default: return "SUPER SATURATED";
+  }
 }
 
 // Scale the sensor's calibrated dry-to-super-wet range to 0-100%.
@@ -91,6 +101,12 @@ void setup() {
   if (!Particle.variable("rawReading", currentRawReading)) {
     Log.error("Failed to register rawReading Particle variable");
   }
+  if (!Particle.variable("targetMoisture", targetMoisturePercent)) {
+    Log.error("Failed to register targetMoisture Particle variable");
+  }
+  if (!Particle.variable("moistureCategory", currentMoistureCategory)) {
+    Log.error("Failed to register moistureCategory Particle variable");
+  }
 }
 
 // Repeatedly sample the sensor, report its status locally, and send periodic
@@ -105,6 +121,7 @@ void loop() {
     // Update the cloud variables and determine whether the target is met.
     currentRawReading = reading;
     currentMoisturePercent = moisturePercent(reading);
+    currentMoistureCategory = moistureCategory(reading);
     const char* targetStatus = currentMoisturePercent >= targetMoisturePercent
         ? "TARGET MET"
         : "BELOW TARGET";
