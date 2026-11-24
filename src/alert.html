@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plant Moisture</title>
   <style>
+    /* Keep the dashboard narrow and make its form controls easy to read. */
     body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 38rem; padding: 0 1rem; }
     label { display: block; margin: 1rem 0 0.35rem; }
     input, select, button { font: inherit; padding: 0.45rem; }
@@ -16,6 +17,7 @@
 <body>
   <h1>Plant Moisture</h1>
 
+  <!-- Enter the Particle device and a token so this page can call its cloud API. -->
   <form id="connectForm">
     <label for="deviceId">Particle device ID</label>
     <input id="deviceId" autocomplete="off" required>
@@ -25,6 +27,7 @@
   </form>
   <p>The page does not save credentials. Use a scoped access token and do not publish this page with a personal access token.</p>
 
+  <!-- These values are loaded from cloud variables and refreshed by moisture events. -->
   <section aria-live="polite">
     <h2>Current soil reading</h2>
     <p class="reading"><span id="moisture">--</span>% — <span id="level">Waiting for device</span></p>
@@ -32,6 +35,7 @@
     <p>Target soil moisture: <span id="targetDisplay">--</span></p>
   </section>
 
+  <!-- Choose the soil-moisture threshold sent to the device as a percentage. -->
   <form id="targetForm">
     <label for="targetMoisture">Desired moisture after watering</label>
     <select id="targetMoisture" required disabled>
@@ -45,6 +49,7 @@
   <p id="status" role="status">Enter your device details to connect.</p>
 
   <script>
+    // Shared Particle API endpoint and references to the page's controls.
     const apiBase = "https://api.particle.io/v1/";
     const connectForm = document.getElementById("connectForm");
     const targetForm = document.getElementById("targetForm");
@@ -55,10 +60,12 @@
     let accessToken = "";
     let eventController = null;
 
+    // Show connection, save, and event-stream results without browser pop-ups.
     function setStatus(message) {
       statusText.textContent = message;
     }
 
+    // Read one registered Particle cloud variable using the current credentials.
     async function readVariable(name) {
       const response = await fetch(
         `${apiBase}devices/${encodeURIComponent(deviceId)}/${name}`,
@@ -71,6 +78,7 @@
       return result.result;
     }
 
+    // Display the target and match it to a preset, or add an option for custom values.
     function showTarget(percent, updateSelection = true) {
       document.getElementById("targetDisplay").textContent = `${percent}%`;
       const matchingOption = Array.from(targetSelect.options)
@@ -88,6 +96,7 @@
       }
     }
 
+    // Update the visible reading fields from either a cloud-variable snapshot or event.
     function showReading(reading, updateTargetSelection = true) {
       if (reading.percent !== undefined) {
         document.getElementById("moisture").textContent = reading.percent;
@@ -103,11 +112,13 @@
       }
     }
 
+    // Convert the firmware's numeric moisture category to its display label.
     function categoryName(category) {
       return ["DRY", "MOIST", "SATURATED", "SUPER SATURATED"][Number(category)]
         || "Unknown";
     }
 
+    // Unwrap the Particle event envelope and apply its JSON moisture reading.
     function handleMoistureEvent(event) {
       try {
         const eventEnvelope = JSON.parse(event.data);
@@ -121,6 +132,7 @@
       }
     }
 
+    // Parse one server-sent event frame and ignore events other than "moisture".
     function processEventFrame(frame) {
       let eventName = "message";
       const data = [];
@@ -136,6 +148,7 @@
       }
     }
 
+    // Stream authenticated moisture events; reconnect after interruptions and stop on abort.
     async function streamMoistureEvents(controller) {
       while (!controller.signal.aborted) {
         try {
@@ -188,6 +201,7 @@
       }
     }
 
+    // Load the latest cloud variables, enable target controls, and start live updates.
     async function connect() {
       if (eventController) {
         eventController.abort();
@@ -219,6 +233,7 @@
       void streamMoistureEvents(eventController);
     }
 
+    // Connect after the form is submitted, reporting errors in the status area.
     connectForm.addEventListener("submit", async event => {
       event.preventDefault();
       targetSelect.disabled = true;
@@ -230,6 +245,7 @@
       }
     });
 
+    // Send the chosen percentage to the firmware's moistTarget cloud function.
     targetForm.addEventListener("submit", async event => {
       event.preventDefault();
       if (!deviceId || !accessToken) {
